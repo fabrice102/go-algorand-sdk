@@ -30,6 +30,7 @@ To download the SDK, open a terminal and use the `go get` command.
 
 ```command
 go get -u github.com/algorand/go-algorand-sdk/...
+GO111MODULE=off go generate github.com/algorand/go-algorand-sdk/...
 ```
 
 If you are connected to the Algorand network, your algod process should already be running. The kmd process must be started manually, however. Start and stop kmd using `goal kmd start` and `goal kmd stop`:
@@ -112,7 +113,7 @@ func main() {
 	fmt.Printf("algod last round: %d\n", nodeStatus.LastRound)
 	fmt.Printf("algod time since last round: %d\n", nodeStatus.TimeSinceLastRound)
 	fmt.Printf("algod catchup: %d\n", nodeStatus.CatchupTime)
-	fmt.Printf("algod latest version: %s\n", nodeStatus.LastVersion)	
+	fmt.Printf("algod latest version: %s\n", nodeStatus.LastVersion)
 
 	// Fetch block information
 	lastBlock, err := algodClient.Block(nodeStatus.LastRound)
@@ -208,7 +209,7 @@ import (
 	"github.com/algorand/go-algorand-sdk/mnemonic"
 )
 
-// These constants represent the kmdd REST endpoint and the corresponding API
+// These constants represent the kmd REST endpoint and the corresponding API
 // token. You can retrieve these from the `kmd.net` and `kmd.token` files in
 // the kmd data directory.
 const kmdAddress = "http://localhost:7833"
@@ -283,14 +284,13 @@ import (
 	"github.com/algorand/go-algorand-sdk/types"
 )
 
-// These constants represent the kmdd REST endpoint and the corresponding API
+// These constants represent the kmd REST endpoint and the corresponding API
 // token. You can retrieve these from the `kmd.net` and `kmd.token` files in
 // the kmd data directory.
 const kmdAddress = "http://localhost:7833"
 const kmdToken = "42b7482737a77d9e5dffb8493ac8899db5f95cbc744d4fcffc0f1c47a6db0c1e"
 
 func main() {
-	// Create a kmd client
 	// Create a kmd client
 	kmdClient, err := kmd.MakeClient(kmdAddress, kmdToken)
 	if err != nil {
@@ -406,8 +406,8 @@ func main() {
 
 	// Make transaction
 	genID := txParams.GenesisID
-	genHash := txParans.GenesisHash
-	tx, err := transaction.MakePaymentTxn(fromAddr, toAddr, 1, 100, 300, 400, nil, "", genID, genHash)
+	genHash := txParams.GenesisHash
+	tx, err := transaction.MakePaymentTxn(fromAddr, toAddr, 1000, 200000, txParams.LastRound, (txParams.LastRound + 1000), nil, "", genID, genHash)
 	if err != nil {
 		fmt.Printf("Error creating transaction: %s\n", err)
 		return
@@ -435,18 +435,16 @@ func main() {
 ```
 ## Sign a transaction offline
 
-The following example shows how to create a transaction and sign it offline. You can also create the tranasaction online and then sign it offline.
+The following example shows how to create a transaction and sign it offline. You can also create the transaction online and then sign it offline.
 ```golang
 package main
 
 import (
-	"encoding/gob"
 	"fmt"
-	"os"
-
-	"github.com/algorand/go-algorand-sdk/mnemonic"
+	"io/ioutil"
 
 	"github.com/algorand/go-algorand-sdk/crypto"
+	"github.com/algorand/go-algorand-sdk/mnemonic"
 	"github.com/algorand/go-algorand-sdk/transaction"
 )
 
@@ -457,38 +455,41 @@ func main() {
 
 	m, err := mnemonic.FromPrivateKey(account.PrivateKey)
 	fmt.Printf("backup phrase = %s\n", m)
-	// Sign a sample transaction using this library, *not* kmd
-	//This transaction will not be valid as the example parameters will most likely not be valid
-	//You can use the algod client to get suggested values for the fee, first and last rounds, and genesisID
-	tx, err := transaction.MakePaymentTxn(account.Address.String(), "4MYUHDWHWXAKA5KA7U5PEN646VYUANBFXVJNONBK3TIMHEMWMD4UBOJBI4", 1000, 400, 642715, 643715, nil, "", "", ""JgsgCaCTqIaLeVhyL6XlRu3n7Rfk2FxMeK+wRSaQ7dI="")
+
+	// Create and sign a sample transaction using this library, *not* kmd
+	// This transaction will not be valid as the example parameters will most likely not be valid
+	// You can use the algod client to get suggested values for the fee, first and last rounds, and genesisID
+	const fee = 1000
+	const amount = 20000
+	const firstRound = 642715
+	const lastRound = firstRound + 1000
+	tx, err := transaction.MakePaymentTxn(
+		account.Address.String(), "4MYUHDWHWXAKA5KA7U5PEN646VYUANBFXVJNONBK3TIMHEMWMD4UBOJBI4",
+		fee, amount, firstRound, lastRound, nil, "", "", []byte("JgsgCaCTqIaLeVhyL6XlRu3n7Rfk2FxMeK+wRSaQ7dI="),
+	)
 	if err != nil {
 		fmt.Printf("Error creating transaction: %s\n", err)
 		return
 	}
 	fmt.Printf("Made unsigned transaction: %+v\n", tx)
 	fmt.Println("Signing transaction with go-algo-sdk library function (not kmd)")
-	
-	//Sign the Transaction
-	txid, stx, err := crypto.SignTransaction(account.PrivateKey, tx)
+
+	// Sign the Transaction
+	txid, bytes, err := crypto.SignTransaction(account.PrivateKey, tx)
 	if err != nil {
 		fmt.Printf("Failed to sign transaction: %s\n", err)
 		return
 	}
-	
-	//Save the signed object to disk
-	fmt.Printf("Made signed transaction with TxID %s: %x\n", txid, stx)
-	file, err := os.Create("./stx.gob")
-	if err == nil {
-		encoder := gob.NewEncoder(file)
-		encoder.Encode(stx)
-	}
-	file.Close()
-	if err == nil {
-		fmt.Printf("Saved signed transaction to file\n")
+
+	// Save the signed object to disk
+	fmt.Printf("Made signed transaction with TxID %s\n", txid)
+	filename := "./signed.tx"
+	err = ioutil.WriteFile(filename, bytes, 0644)
+	if err != nil {
+		fmt.Printf("Failed in saving transaction to file %s, error %s\n", filename, err)
 		return
 	}
-	fmt.Printf("Failed in saving trx to file, error %s\n", err)
-
+	fmt.Printf("Saved signed transaction to file: %s\n", filename)
 }
 ```
 ## Submit the transaction from a file
@@ -498,9 +499,8 @@ This example takes the output from the previous example (file containing signed 
 package main
 
 import (
-	"encoding/gob"
 	"fmt"
-	"os"
+	"io/ioutil"
 
 	"github.com/algorand/go-algorand-sdk/client/algod"
 )
@@ -511,16 +511,12 @@ const algodToken = "f1dee49e36a82face92fdb21cd3d340a1b369925cd12f3ee7371378f1665
 
 func main() {
 
-	var signedTransaction []byte
-	file, err := os.Open("./stx.gob")
-	if err == nil {
-		decoder := gob.NewDecoder(file)
-		err = decoder.Decode(&signedTransaction)
-	}else{
+	rawTx, err := ioutil.ReadFile("./signed.tx")
+	if err != nil {
 		fmt.Printf("failed to open signed transaction: %s\n", err)
-		return	
+		return
 	}
-	file.Close()
+
 	// Create an algod client
 	algodClient, err := algod.MakeClient(algodAddress, algodToken)
 	if err != nil {
@@ -529,7 +525,7 @@ func main() {
 	}
 
 	// Broadcast the transaction to the network
-	sendResponse, err := algodClient.SendRawTransaction(signedTransaction)
+	sendResponse, err := algodClient.SendRawTransaction(rawTx)
 	if err != nil {
 		fmt.Printf("failed to send transaction: %s\n", err)
 		return
@@ -614,4 +610,310 @@ We can also merge raw, partially-signed multisig transactions:
 ```golang
 otherTxBytes := ... // generate another raw multisig transaction somehow
 txid, mergedTxBytes, err := crypto.MergeMultisigTransactions(twoOfThreeTxBytes, otherTxBytes)
+```
+
+## Working with transactions group
+
+Example below demonstrates how to create a transactions group and send it to network.
+
+```golang
+package main
+
+import (
+	"fmt"
+
+	"github.com/algorand/go-algorand-sdk/client/algod"
+	"github.com/algorand/go-algorand-sdk/crypto"
+	"github.com/algorand/go-algorand-sdk/transaction"
+	"github.com/algorand/go-algorand-sdk/types"
+)
+
+// CHANGE ME
+const algodAddress = "http://localhost:8080"
+const algodToken = "f1dee49e36a82face92fdb21cd3d340a1b369925cd12f3ee7371378f1665b9b1"
+
+func submitGroup() {
+	account1 := crypto.GenerateAccount()
+	fmt.Printf("account address: %s\n", account1.Address)
+	account2 := crypto.GenerateAccount()
+	fmt.Printf("account address: %s\n", account2.Address)
+
+	address1 := account1.Address.String()
+	address2 := account2.Address.String()
+	const address3 = "47YPQTIGQEO7T4Y4RWDYWEKV6RTR2UNBQXBABEEGM72ESWDQNCQ52OPASU"
+	const fee = 1000
+	const amount1 = 2000
+	var note []byte
+	const genesisID = "XYZ"      // replace me
+	genesisHash := []byte("ABC") // replace me
+
+	const firstRound1 = 710399
+	tx1, err := transaction.MakePaymentTxnWithFlatFee(
+		address1, address2, fee, amount1, firstRound1, firstRound1+1000,
+		note, "", genesisID, genesisHash,
+	)
+	if err != nil {
+		fmt.Printf("Failed to create payment transaction: %v\n", err)
+		return
+	}
+
+	const firstRound2 = 710515
+	const amount2 = 1500
+	tx2, err := transaction.MakePaymentTxnWithFlatFee(
+		address2, address3, fee, amount2, firstRound2, firstRound2+1000,
+		note, "", genesisID, genesisHash,
+	)
+	if err != nil {
+		fmt.Printf("Failed to create payment transaction: %v\n", err)
+		return
+	}
+
+	// compute group id and put it into each transaction
+	gid, err := crypto.ComputeGroupID([]types.Transaction{tx1, tx2})
+	tx1.Group = gid
+	tx2.Group = gid
+
+	algodClient, err := algod.MakeClient(algodAddress, algodToken)
+	if err != nil {
+		fmt.Printf("failed to make algod client: %v\n", err)
+		return
+	}
+
+	_, stx1, err := crypto.SignTransaction(account1.PrivateKey, tx1)
+	if err != nil {
+		fmt.Printf("Failed to sign transaction: %s\n", err)
+		return
+	}
+	_, stx2, err := crypto.SignTransaction(account2.PrivateKey, tx2)
+	if err != nil {
+		fmt.Printf("Failed to sign transaction: %s\n", err)
+		return
+	}
+
+	var signedGroup []byte
+	signedGroup = append(signedGroup, stx1...)
+	signedGroup = append(signedGroup, stx2...)
+	_, err = algodClient.SendRawTransaction(signedGroup)
+	if err != nil {
+		fmt.Printf("Failed to create payment transaction: %v\n", err)
+		return
+	}
+}
+```
+
+## Working with LogicSig
+
+Example creates a delegating LogicSig signature signed by a MultiSig account.
+A program is "int 0" that is evaluates to `FALSE` and does not actually permits the transaction.
+
+```golang
+package main
+
+import (
+	"fmt"
+
+	"github.com/algorand/go-algorand-sdk/client/algod"
+	"github.com/algorand/go-algorand-sdk/crypto"
+	"github.com/algorand/go-algorand-sdk/mnemonic"
+	"github.com/algorand/go-algorand-sdk/transaction"
+	"github.com/algorand/go-algorand-sdk/types"
+)
+
+// CHANGE ME
+const algodAddress = "http://localhost:8080"
+const algodToken = "6218386c0d964e371f34bbff4adf543dab14a7d9720c11c6f11970774d4575de"
+
+func main() {
+	// ignore error checking for readability
+
+	addr1, err := types.DecodeAddress("DN7MBMCL5JQ3PFUQS7TMX5AH4EEKOBJVDUF4TCV6WERATKFLQF4MQUPZTA")
+	addr2, err := types.DecodeAddress("BFRTECKTOOE7A5LHCF3TTEOH2A7BW46IYT2SX5VP6ANKEXHZYJY77SJTVM")
+	mn1 := "auction inquiry lava second expand liberty glass involve ginger illness length room item discover ahead table doctor term tackle cement bonus profit right above catch"
+	sk1, err := mnemonic.ToPrivateKey(mn1)
+	mn2 := "since during average anxiety protect cherry club long lawsuit loan expand embark forum theory winter park twenty ball kangaroo cram burst board host ability left"
+	sk2, err := mnemonic.ToPrivateKey(mn2)
+
+	ma, err := crypto.MultisigAccountWithParams(1, 2, []types.Address{
+		addr1,
+		addr2,
+	})
+
+	program := []byte{1, 32, 1, 0, 34} // int 0 => never transfer money
+	var args [][]byte
+	lsig, err := crypto.MakeLogicSig(program, args, sk1, ma)
+	err = crypto.AppendMultisigToLogicSig(&lsig, sk2)
+
+	sender, err := ma.Address()
+	_ = crypto.VerifyLogicSig(lsig, sender)
+
+	const receiver = "47YPQTIGQEO7T4Y4RWDYWEKV6RTR2UNBQXBABEEGM72ESWDQNCQ52OPASU"
+	const fee = 1000
+	const amount = 2000
+	var note []byte
+	const genesisID = "XYZ"      // replace me
+	genesisHash := []byte("ABC") // replace me
+
+	const firstRound = 710399
+	tx, err := transaction.MakePaymentTxnWithFlatFee(
+		sender.String(), receiver, fee, amount, firstRound, firstRound+1000,
+		note, "", genesisID, genesisHash,
+	)
+
+	txid, stx, err := crypto.SignLogicsigTransaction(lsig, tx)
+	if err != nil {
+		fmt.Printf("Signing failed with %v", err)
+		return
+	}
+	fmt.Printf("Signed tx: %v\n", txid)
+
+	algodClient, err := algod.MakeClient(algodAddress, algodToken)
+	_, err = algodClient.SendRawTransaction(stx)
+	if err != nil {
+		fmt.Printf("Sending failed with %v\n", err)
+	}
+}
+```
+
+## Assets
+
+The Algorand protocol allows users to create and trade named assets on layer one. Creating and managing these assets
+is done through the issuing of asset transactions. This section details how to make asset transactions, and what they do.
+
+Asset creation: This allows a user to issue a new asset. The user can define the number of assets in circulation,
+whether there is an account that can revoke assets, whether there is an account that can freeze user accounts, 
+whether there is an account that can be considered the asset reserve, and whether there is an account that can change
+the other accounts. The creating user can also do things like specify a name for the asset.
+                                                                        
+```golang
+addr := "BH55E5RMBD4GYWXGX5W5PJ5JAHPGM5OXKDQH5DC4O2MGI7NW4H6VOE4CP4" // the account issuing the transaction; the asset creator
+fee := uint64(10) // the number of microAlgos per byte to pay as a transaction fee
+defaultFrozen := false // whether user accounts will need to be unfrozen before transacting
+genesisHash := "SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI=" // hash of the genesis block of the network to be used
+totalIssuance := uint64(100) // total number of this asset in circulation
+reserve := addr // specified address is considered the asset reserve (it has no special privileges, this is only informational)
+freeze := addr // specified address can freeze or unfreeze user asset holdings
+clawback := addr // specified address can revoke user asset holdings and send them to other addresses
+manager := addr // specified address can change reserve, freeze, clawback, and manager
+unitName := "tst" // used to display asset units to user
+assetName := "testcoin" // "friendly name" of asset
+genesisID := "" // like genesisHash this is used to specify network to be used
+firstRound := uint64(322575) // first Algorand round on which this transaction is valid
+lastRound := uint64(322575) // last Algorand round on which this transaction is valid
+note := nil // arbitrary data to be stored in the transaction; here, none is stored
+assetURL := "http://someurl" // optional string pointing to a URL relating to the asset 
+assetMetadataHash := "thisIsSomeLength32HashCommitment" // optional hash commitment of some sort relating to the asset. 32 character length.
+
+// signing and sending "txn" allows "addr" to create an asset
+txn, err = MakeAssetCreateTxn(addr, fee, firstRound, lastRound, note,
+    genesisID, genesisHash, totalIssuance, defaultFrozen, manager, reserve, freeze, clawback,
+    unitName, assetName, assetURL, assetMetadataHash)
+```
+
+
+Asset reconfiguration: This allows the address specified as `manager` to change any of the special addresses for the asset,
+such as the reserve address. To keep an address the same, it must be re-specified in each new configuration transaction.
+Supplying an empty address is the same as turning the associated feature off for this asset. Once a special address
+is set to the empty address, it can never change again. For example, if an asset configuration transaction specifying
+`clawback=""` were issued, the associated asset could never be revoked from asset holders, and `clawback=""` would be
+true for all time.                 
+
+```golang
+addr := "BH55E5RMBD4GYWXGX5W5PJ5JAHPGM5OXKDQH5DC4O2MGI7NW4H6VOE4CP4"
+fee := uint64(10)
+firstRound := uint64(322575)
+lastRound := uint64(322575)
+note := nil
+genesisID := ""
+genesisHash := "SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI="
+assetIndex := uint64(1234)
+reserve := addr
+freeze := addr
+clawback := addr
+manager := addr
+
+// signing and sending "txn" will allow the asset manager to change:
+// asset manager, asset reserve, asset freeze manager, asset revocation manager 
+txn, err = MakeAssetConfigTxn(addr, fee, firstRound, lastRound, note,
+    genesisID, genesisHash, assetIndex, manager, reserve, freeze, clawback)
+```
+
+
+Asset destruction: This allows the creator to remove the asset from the ledger, if all outstanding assets are held
+by the creator.
+
+```golang
+addr := "BH55E5RMBD4GYWXGX5W5PJ5JAHPGM5OXKDQH5DC4O2MGI7NW4H6VOE4CP4" 
+fee := uint64(10)
+firstRound := uint64(322575) 
+lastRound := uint64(322575) 
+note := nil
+genesisID := ""
+genesisHash := "SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI="
+assetIndex := uint64(1234)
+
+// if all outstanding assets are held by the asset creator,
+// the asset creator can sign and issue "txn" to remove the asset from the ledger. 
+txn, err = MakeAssetDestroyTxn(addr, fee, firstRound, lastRound, note, genesisID, genesisHash, assetIndex)
+```
+
+Begin accepting an asset: Before a user can begin transacting with an asset, the user must first issue an asset acceptance transaction.
+This is a special case of the asset transfer transaction, where the user sends 0 assets to themself. After issuing this transaction,
+the user can begin transacting with the asset. Each new accepted asset increases the user's minimum balance.                                                                                                                               
+
+```golang
+addr := "BH55E5RMBD4GYWXGX5W5PJ5JAHPGM5OXKDQH5DC4O2MGI7NW4H6VOE4CP4"
+fee := uint64(10)
+firstRound := uint64(322575)
+lastRound := uint64(322575)
+note := nil
+genesisID := ""
+genesisHash := "SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI="
+assetIndex := uint64(1234)
+
+// signing and sending "txn" allows sender to begin accepting asset specified by creator and index
+txn, err = MakeAssetAcceptanceTxn(addr, fee, firstRound, lastRound, note, genesisID, genesisHash, assetIndex)
+```
+
+
+Transfer an asset: This allows users to transact with assets, after they have issued asset acceptance transactions. The
+optional `closeRemainderTo` argument can be used to stop transacting with a particular asset. Note: A frozen account can always close
+out to the asset creator.                                                                                                             
+```golang
+addr := "BH55E5RMBD4GYWXGX5W5PJ5JAHPGM5OXKDQH5DC4O2MGI7NW4H6VOE4CP4" 
+sender := addr
+recipient := "47YPQTIGQEO7T4Y4RWDYWEKV6RTR2UNBQXBABEEGM72ESWDQNCQ52OPASU"
+closeRemainderTo := "" // supply an address to close remaining balance after transfer to supplied address
+fee := uint64(10)
+firstRound := uint64(322575) 
+lastRound := uint64(322575) 
+note := nil
+genesisID := ""
+genesisHash := "SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI="
+assetIndex := uint64(1234)
+amount := uint64(10)
+
+// signing and sending "txn" will send "amount" assets from "sender" to "recipient"
+txn, err = MakeAssetTransferTxn(sender, recipient, closeRemainderTo, amount, fee, firstRound, lastRound, note,
+    genesisID, genesisHash, assetIndex);
+```
+
+Revoke an asset: This allows an asset's revocation manager to transfer assets on behalf of another user. It will only work when 
+issued by the asset's revocation manager.
+```golang
+revocationManager := "BH55E5RMBD4GYWXGX5W5PJ5JAHPGM5OXKDQH5DC4O2MGI7NW4H6VOE4CP4" // txn signed by this address
+recipient := "47YPQTIGQEO7T4Y4RWDYWEKV6RTR2UNBQXBABEEGM72ESWDQNCQ52OPASU"         // assets sent to this address
+revocationTarget := "47YPQTIGQEO7T4Y4RWDYWEKV6RTR2UNBQXBABEEGM72ESWDQNCQ52OPASU"  // assets come from this address
+fee := uint64(10)
+firstRound := uint64(322575) 
+lastRound := uint64(322575) 
+note := nil
+genesisID := ""
+genesisHash := "SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI="
+assetIndex := uint64(1234)
+amount := uint64(10)
+
+// signing and sending "txn" will send "amount" assets from "revocationTarget" to "recipient",
+// if and only if sender == clawback manager for this asset
+txn, err = MakeAssetRevocationTxn(revocationManager, recipient, revocationTarget, amount, fee, firstRound, lastRound, note,
+    genesisID, genesisHash, assetIndex);
 ```
