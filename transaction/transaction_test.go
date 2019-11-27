@@ -58,6 +58,30 @@ func TestMakePaymentTxn2(t *testing.T) {
 
 }
 
+func TestMakePaymentTxnWithLease(t *testing.T) {
+	const fromAddress = "47YPQTIGQEO7T4Y4RWDYWEKV6RTR2UNBQXBABEEGM72ESWDQNCQ52OPASU"
+	const toAddress = "PNWOET7LLOWMBMLE4KOCELCX6X3D3Q4H2Q4QJASYIEOF7YIPPQBG3YQ5YI"
+	const referenceTxID = "7BG6COBZKF6I6W5XY72ZE4HXV6LLZ6ENSR6DASEGSTXYXR4XJOOQ"
+	const mn = "advice pudding treat near rule blouse same whisper inner electric quit surface sunny dismiss leader blood seat clown cost exist hospital century reform able sponsor"
+	const golden = "gqNzaWfEQOMmFSIKsZvpW0txwzhmbgQjxv6IyN7BbV5sZ2aNgFbVcrWUnqPpQQxfPhV/wdu9jzEPUU1jAujYtcNCxJ7ONgejdHhujKNhbXTNA+ilY2xvc2XEIEDpNJKIJWTLzpxZpptnVCaJ6aHDoqnqW2Wm6KRCH/xXo2ZlZc0FLKJmds0wsqNnZW6sZGV2bmV0LXYzMy4womdoxCAmCyAJoJOohot5WHIvpeVG7eftF+TYXEx4r7BFJpDt0qJsds00mqJseMQgAQIDBAECAwQBAgMEAQIDBAECAwQBAgMEAQIDBAECAwSkbm90ZcQI6gAVR0Nsv5ajcmN2xCB7bOJP61uswLFk4pwiLFf19j3Dh9Q5BIJYQRxf4Q98AqNzbmTEIOfw+E0GgR358xyNh4sRVfRnHVGhhcIAkIZn9ElYcGihpHR5cGWjcGF5"
+	gh := byteFromBase64("JgsgCaCTqIaLeVhyL6XlRu3n7Rfk2FxMeK+wRSaQ7dI=")
+
+	lease := [32]byte{1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4, 1, 2, 3, 4}
+	txn, err := MakePaymentTxn(fromAddress, toAddress, 4, 1000, 12466, 13466, byteFromBase64("6gAVR0Nsv5Y="), "IDUTJEUIEVSMXTU4LGTJWZ2UE2E6TIODUKU6UW3FU3UKIQQ77RLUBBBFLA", "devnet-v33.0", gh)
+	require.NoError(t, err)
+	txn.AddLease(lease, 4)
+	require.NoError(t, err)
+
+	key, err := mnemonic.ToPrivateKey(mn)
+	require.NoError(t, err)
+
+	id, stxBytes, err := crypto.SignTransaction(key, txn)
+
+	goldenBytes := byteFromBase64(golden)
+	require.Equal(t, goldenBytes, stxBytes)
+	require.Equal(t, referenceTxID, id)
+}
+
 func TestKeyRegTxn(t *testing.T) {
 	// preKeyRegTxn is an unsigned signed keyreg txn with zero Sender
 	const addr = "BH55E5RMBD4GYWXGX5W5PJ5JAHPGM5OXKDQH5DC4O2MGI7NW4H6VOE4CP4"
@@ -182,7 +206,7 @@ func TestMakeAssetConfigTxn(t *testing.T) {
 	const clawback = addr
 	const assetIndex = 1234
 	tx, err := MakeAssetConfigTxn(addr, 10, 322575, 323575, nil, "", genesisHash,
-		assetIndex, manager, reserve, freeze, clawback)
+		assetIndex, manager, reserve, freeze, clawback, false)
 	require.NoError(t, err)
 
 	a, err := types.DecodeAddress(addr)
@@ -214,6 +238,19 @@ func TestMakeAssetConfigTxn(t *testing.T) {
 	_, newStxBytes, err := crypto.SignTransaction(private, tx)
 	signedGolden := "gqNzaWfEQBBkfw5n6UevuIMDo2lHyU4dS80JCCQ/vTRUcTx5m0ivX68zTKyuVRrHaTbxbRRc3YpJ4zeVEnC9Fiw3Wf4REwejdHhuiKRhcGFyhKFjxCAJ+9J2LAj4bFrmv23Xp6kB3mZ111Dgfoxcdphkfbbh/aFmxCAJ+9J2LAj4bFrmv23Xp6kB3mZ111Dgfoxcdphkfbbh/aFtxCAJ+9J2LAj4bFrmv23Xp6kB3mZ111Dgfoxcdphkfbbh/aFyxCAJ+9J2LAj4bFrmv23Xp6kB3mZ111Dgfoxcdphkfbbh/aRjYWlkzQTSo2ZlZc0NSKJmds4ABOwPomdoxCBIY7UYpLPITsgQ8i1PEIHLD3HwWaesIN7GL39w5Qk6IqJsds4ABO/3o3NuZMQgCfvSdiwI+Gxa5r9t16epAd5mdddQ4H6MXHaYZH224f2kdHlwZaRhY2Zn"
 	require.EqualValues(t, newStxBytes, byteFromBase64(signedGolden))
+}
+
+func TestMakeAssetConfigTxnStrictChecking(t *testing.T) {
+	const addr = "BH55E5RMBD4GYWXGX5W5PJ5JAHPGM5OXKDQH5DC4O2MGI7NW4H6VOE4CP4"
+	const genesisHash = "SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI="
+	const manager = addr
+	const reserve = addr
+	const freeze = ""
+	const clawback = addr
+	const assetIndex = 1234
+	_, err := MakeAssetConfigTxn(addr, 10, 322575, 323575, nil, "", genesisHash,
+		assetIndex, manager, reserve, freeze, clawback, true)
+	require.Error(t, err)
 }
 
 func TestMakeAssetDestroyTxn(t *testing.T) {
